@@ -1,40 +1,52 @@
 import json
 import pickle
 import math
-from collections import Counter
-
+import re
 
 from Trie import Trie, TrieNode
 
 
-def encode(sentence):
+def clean_sentence(sentence):
+    return re.sub(r"[^a-zA-Z0-9 ]+", "", sentence)
+
+
+def encode_weighted(sentence, decay_factor=0.9):
     s = sentence.split(" ")
     with open("trie.pkl", "rb") as trie_file:
         trie: Trie = pickle.load(trie_file)
+
     vector = []
-    for word in s:
+    for index, word in enumerate(s):
         position = trie.search(word)
         if position is not None:
-            vector.append(position)
+            weight = decay_factor**index
+            vector.append((position, weight))
+
     return vector
 
 
-def build_frequency_vector(vec1, vec2):
-    all_unique_numbers = list(set(vec1 + vec2))
+def build_weighted_frequency_vector(vec1, vec2):
+    all_unique_numbers = list(set(pos for pos, _ in vec1) | set(pos for pos, _ in vec2))
 
-    count_vec1 = Counter(vec1)
-    count_vec2 = Counter(vec2)
+    count_vec1 = {pos: 0 for pos in all_unique_numbers}
+    count_vec2 = {pos: 0 for pos in all_unique_numbers}
 
-    frequency_vec1 = [count_vec1.get(num, 0) for num in all_unique_numbers]
-    frequency_vec2 = [count_vec2.get(num, 0) for num in all_unique_numbers]
+    for pos, weight in vec1:
+        count_vec1[pos] += weight
+    for pos, weight in vec2:
+        count_vec2[pos] += weight
+
+    frequency_vec1 = [count_vec1[pos] for pos in all_unique_numbers]
+    frequency_vec2 = [count_vec2[pos] for pos in all_unique_numbers]
 
     return frequency_vec1, frequency_vec2
 
 
 def cosine_similarity(vec1, vec2):
-    frequency_vec1, frequency_vec2 = build_frequency_vector(vec1, vec2)
+    frequency_vec1, frequency_vec2 = build_weighted_frequency_vector(vec1, vec2)
 
     dot_product = sum(x * y for x, y in zip(frequency_vec1, frequency_vec2))
+
     magnitude_vec1 = math.sqrt(sum(x**2 for x in frequency_vec1))
     magnitude_vec2 = math.sqrt(sum(x**2 for x in frequency_vec2))
 
@@ -64,9 +76,10 @@ def top_2_responses(similarity_values):
     return first_idx, second_idx
 
 
-def respond(query):
-    encoded_query = encode(query)
+def respond(query, decay_factor=0.9):
+    encoded_query = encode_weighted(query, decay_factor=1)
     print(f"{encoded_query=}")
+
     with open("bot_responses.json", "r") as bot_file:
         bot_responses = json.load(bot_file)["responses"]
 
@@ -74,7 +87,7 @@ def respond(query):
 
     for response in bot_responses:
         relevant_words = " ".join(response["relevancy"])
-        encoded_response = encode(relevant_words)
+        encoded_response = encode_weighted(relevant_words, decay_factor)
         print(f"{encoded_response=}")
         similarity = cosine_similarity(encoded_query, encoded_response)
         similarity_values.append(similarity)
@@ -87,6 +100,6 @@ def respond(query):
 
 
 if __name__ == "__main__":
-    query = "Hello Sunshine"
-    response, _ = respond(query)
+    query = "Hello!! This is Vivek Sunshine"
+    response, _ = respond(clean_sentence(query))
     print(response)
